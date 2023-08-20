@@ -87,3 +87,5 @@ require (
 	sigs.k8s.io/structured-merge-diff/v4 v4.2.1 // indirect
 	sigs.k8s.io/yaml v1.2.0 // indirect
 )
+
+replace github.com/txn2/kubefwd => github.com/lsierant/kubefwd v0.0.0-20230824064752-0b1ff0326f0b

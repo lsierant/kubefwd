@@ -243,6 +243,7 @@ func (pfo *PortForwardOpts) PortForward() error {
 // AddHost
 func (pfo *PortForwardOpts) addHost(host string) {
 	// add to list of hostnames for this port-forward
+	log.Debugf("Forwarding host: %s", host)
 	pfo.Hosts = append(pfo.Hosts, host)
 
 	// remove host if it already exists in /etc/hosts
@@ -296,34 +297,31 @@ func (pfo *PortForwardOpts) AddHosts() {
 	}
 
 	// namespaced without cluster
-	if pfo.ClusterN == 0 {
+	pfo.addHost(fmt.Sprintf(
+		"%s.%s",
+		pfo.Service,
+		pfo.Namespace,
+	))
+
+	pfo.addHost(fmt.Sprintf(
+		"%s.%s.svc",
+		pfo.Service,
+		pfo.Namespace,
+	))
+
+	pfo.addHost(fmt.Sprintf(
+		"%s.%s.svc.cluster.local",
+		pfo.Service,
+		pfo.Namespace,
+	))
+
+	if pfo.Domain != "" {
 		pfo.addHost(fmt.Sprintf(
-			"%s.%s",
+			"%s.%s.svc.cluster.%s",
 			pfo.Service,
 			pfo.Namespace,
+			pfo.Domain,
 		))
-
-		pfo.addHost(fmt.Sprintf(
-			"%s.%s.svc",
-			pfo.Service,
-			pfo.Namespace,
-		))
-
-		pfo.addHost(fmt.Sprintf(
-			"%s.%s.svc.cluster.local",
-			pfo.Service,
-			pfo.Namespace,
-		))
-
-		if pfo.Domain != "" {
-			pfo.addHost(fmt.Sprintf(
-				"%s.%s.svc.cluster.%s",
-				pfo.Service,
-				pfo.Namespace,
-				pfo.Domain,
-			))
-		}
-
 	}
 
 	pfo.addHost(fmt.Sprintf(
