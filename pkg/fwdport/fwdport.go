@@ -62,6 +62,8 @@ type PortForwardOpts struct {
 	PodPort    string
 	LocalIp    net.IP
 	LocalPort  string
+	// Timeout for the port-forwarding process
+	Timeout    int
 	HostFile   *HostFileWithLock
 
 	// Context is a unique key (string) in kubectl config representing
@@ -184,7 +186,7 @@ func (pfo *PortForwardOpts) PortForward() error {
 
 	// Listen for pod is deleted
 	// @TODO need a test for this, does not seem to work as intended
-	// go pfo.ListenUntilPodDeleted(downstreamStopChannel, pod)
+	go pfo.ListenUntilPodDeleted(downstreamStopChannel, pod)
 
 	p := pfo.Out.MakeProducer(localNamedEndPoint)
 
@@ -405,14 +407,13 @@ func (pfo *PortForwardOpts) WaitUntilPodRunning(stopChannel <-chan struct{}) (*v
 	// if the os.signal (we enter the Ctrl+C)
 	// or ManualStop (service delete or some thing wrong)
 	// or RunningChannel channel (the watch for pod runnings is done)
-	// or timeout after 300s
+	// or timeout after 300s(default)
 	// we'll stop the watcher
-	// TODO: change the 300s timeout to custom settings.
 	go func() {
 		defer watcher.Stop()
 		select {
 		case <-stopChannel:
-		case <-time.After(time.Second * 300):
+		case <-time.After(time.Duration(pfo.Timeout) * time.Second):
 		}
 	}()
 
@@ -453,10 +454,20 @@ func (pfo *PortForwardOpts) ListenUntilPodDeleted(stopChannel <-chan struct{}, p
 			break
 		}
 		switch event.Type {
+		case watch.Modified:
+			log.Warnf("Pod %s modified, service %s pod new status %v", pod.ObjectMeta.Name, pfo.ServiceFwd, pod)
+			if (event.Object.(*v1.Pod)).DeletionTimestamp != nil {
+				log.Warnf("Pod %s marked for deletion, resyncing the %s service pods.", pod.ObjectMeta.Name, pfo.ServiceFwd)
+				pfo.Stop()
+				pfo.ServiceFwd.SyncPodForwards(false)
+			}
+			//return
 		case watch.Deleted:
 			log.Warnf("Pod %s deleted, resyncing the %s service pods.", pod.ObjectMeta.Name, pfo.ServiceFwd)
+			// TODO - Disconnect / reconnect on the provided port
+			log.Warnf("Pod %s deleted, resyncing the %s service pods.", pod.ObjectMeta.Name, pfo.ServiceFwd)
+			pfo.Stop()
 			pfo.ServiceFwd.SyncPodForwards(false)
-			return
 		}
 	}
 }
