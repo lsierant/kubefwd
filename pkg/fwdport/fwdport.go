@@ -63,8 +63,8 @@ type PortForwardOpts struct {
 	LocalIp    net.IP
 	LocalPort  string
 	// Timeout for the port-forwarding process
-	Timeout    int
-	HostFile   *HostFileWithLock
+	Timeout  int
+	HostFile *HostFileWithLock
 
 	// Context is a unique key (string) in kubectl config representing
 	// a user/cluster combination. Kubefwd uses context as the
@@ -455,7 +455,7 @@ func (pfo *PortForwardOpts) ListenUntilPodDeleted(stopChannel <-chan struct{}, p
 		}
 		switch event.Type {
 		case watch.Modified:
-			log.Warnf("Pod %s modified, service %s pod new status %v", pod.ObjectMeta.Name, pfo.ServiceFwd, pod)
+			log.Warnf("Pod %s modified, service %s", pod.ObjectMeta.Name, pfo.ServiceFwd)
 			if (event.Object.(*v1.Pod)).DeletionTimestamp != nil {
 				log.Warnf("Pod %s marked for deletion, resyncing the %s service pods.", pod.ObjectMeta.Name, pfo.ServiceFwd)
 				pfo.Stop()

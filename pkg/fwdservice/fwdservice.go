@@ -376,12 +376,16 @@ func (svcFwd *ServiceFWD) ListServicePodNames() []string {
 }
 
 func (svcFwd *ServiceFWD) RemoveServicePod(servicePodName string) {
-	if pod, found := svcFwd.PortForwards[servicePodName]; found {
+	svcFwd.NamespaceServiceLock.Lock()
+	pod, found := svcFwd.PortForwards[servicePodName]
+	if found {
+		delete(svcFwd.PortForwards, servicePodName)
+	}
+	svcFwd.NamespaceServiceLock.Unlock()
+
+	if found {
 		pod.Stop()
 		<-pod.DoneChan
-		svcFwd.NamespaceServiceLock.Lock()
-		delete(svcFwd.PortForwards, servicePodName)
-		svcFwd.NamespaceServiceLock.Unlock()
 	}
 }
 

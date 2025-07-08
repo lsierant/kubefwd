@@ -305,7 +305,7 @@ Try:
 		}
 
 		for ii, namespace := range namespaces {
-			nsWatchesDone.Add(1)
+			nsWatchesDone.Add(2)
 
 			nameSpaceOpts := NamespaceOpts{
 				ClientSet: *clientSet,
@@ -328,6 +328,11 @@ Try:
 
 			go func(npo NamespaceOpts) {
 				nameSpaceOpts.watchServiceEvents(stopListenCh)
+				nsWatchesDone.Done()
+			}(nameSpaceOpts)
+
+			go func(npo NamespaceOpts) {
+				nameSpaceOpts.watchPodEvents(stopListenCh)
 				nsWatchesDone.Done()
 			}(nameSpaceOpts)
 		}
@@ -414,6 +419,28 @@ func (opts *NamespaceOpts) watchServiceEvents(stopListenCh <-chan struct{}) {
 	log.Infof("Stopped watching Service events in namespace %s in %s context", opts.Namespace, opts.Context)
 }
 
+func (opts *NamespaceOpts) watchPodEvents(stopListenCh <-chan struct{}) {
+	_, controller := cache.NewInformer(
+		&cache.ListWatch{
+			ListFunc: func(options metav1.ListOptions) (runtime.Object, error) {
+				return opts.ClientSet.CoreV1().Pods(opts.Namespace).List(context.TODO(), options)
+			},
+			WatchFunc: func(options metav1.ListOptions) (watch.Interface, error) {
+				options.Watch = true
+				return opts.ClientSet.CoreV1().Pods(opts.Namespace).Watch(context.TODO(), options)
+			},
+		},
+		&v1.Pod{},
+		0,
+		cache.ResourceEventHandlerFuncs{
+			UpdateFunc: opts.UpdatePodHandler,
+		},
+	)
+
+	controller.Run(stopListenCh)
+	log.Infof("Stopped watching Pod events in namespace %s in %s context", opts.Namespace, opts.Context)
+}
+
 // AddServiceHandler is the event handler for when a new service comes in from k8s
 // (the initial list of services will also be coming in using this event for each).
 func (opts *NamespaceOpts) AddServiceHandler(obj interface{}) {
@@ -488,4 +515,64 @@ func (opts *NamespaceOpts) ParsePortMap(mappings []string) *[]fwdservice.PortMap
 		portList = append(portList, fwdservice.PortMap{SourcePort: portInfo[0], TargetPort: portInfo[1]})
 	}
 	return &portList
+}
+
+func (opts *NamespaceOpts) UpdatePodHandler(oldObj, newObj interface{}) {
+	oldPod, oldOk := oldObj.(*v1.Pod)
+	newPod, newOk := newObj.(*v1.Pod)
+
+	if !oldOk || !newOk {
+		return
+	}
+
+	oldReady := isPodReady(oldPod)
+	newReady := isPodReady(newPod)
+
+	if !oldReady && newReady {
+		log.Debugf("Pod %s became ready, checking for services to sync", newPod.Name)
+
+		services, err := opts.ClientSet.CoreV1().Services(opts.Namespace).List(context.TODO(), metav1.ListOptions{})
+		if err != nil {
+			log.Debugf("Failed to list services: %v", err)
+			return
+		}
+
+		for _, service := range services.Items {
+			if matchesServiceSelector(&service, newPod) {
+				serviceName := service.Name + "." + service.Namespace + "." + opts.Context
+				log.Debugf("Pod %s is ready and matches service %s, triggering sync", newPod.Name, serviceName)
+				fwdsvcregistry.SyncServiceByName(serviceName)
+			}
+		}
+	}
+}
+
+func isPodReady(pod *v1.Pod) bool {
+	ready := false
+	containersReady := false
+
+	for _, condition := range pod.Status.Conditions {
+		if condition.Type == "Ready" && condition.Status == v1.ConditionTrue {
+			ready = true
+		}
+		if condition.Type == "ContainersReady" && condition.Status == v1.ConditionTrue {
+			containersReady = true
+		}
+	}
+
+	return ready && containersReady
+}
+
+func matchesServiceSelector(service *v1.Service, pod *v1.Pod) bool {
+	if len(service.Spec.Selector) == 0 {
+		return false
+	}
+
+	for key, value := range service.Spec.Selector {
+		if podValue, exists := pod.Labels[key]; !exists || podValue != value {
+			return false
+		}
+	}
+
+	return true
 }

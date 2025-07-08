@@ -108,6 +108,23 @@ func ShutDownAll() {
 	log.Debugf("Registry: All services have shut down")
 }
 
+func SyncServiceByName(serviceName string) {
+	select {
+	case <-svcRegistry.shutDownSignal:
+		return
+	default:
+	}
+
+	svcRegistry.mutex.Lock()
+	serviceFwd, found := svcRegistry.services[serviceName]
+	svcRegistry.mutex.Unlock()
+
+	if found {
+		go serviceFwd.SyncPodForwards(false)
+		log.Debugf("Registry: Triggered sync for service %s", serviceName)
+	}
+}
+
 // RemoveByName will shutdown and remove the service, identified by svcName.svcNamespace,
 // from the inventory of services, if it was currently being configured to do forwarding.
 func RemoveByName(name string) {
