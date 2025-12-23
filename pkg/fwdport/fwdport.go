@@ -246,9 +246,10 @@ type PortForwardOpts struct {
 	// while > 0 is an external namespace
 	NamespaceN int
 
-	Domain         string
-	HostsParams    *HostsParams
-	Hosts          []string
+	Domain          string
+	ClusterLocalAll bool // When true, adds .svc.cluster.local suffix for all contexts
+	HostsParams     *HostsParams
+	Hosts           []string
 	ManualStopChan chan struct{} // Send a signal on this to stop the portforwarding
 	DoneChan       chan struct{} // Listen on this channel for when the shutdown is completed.
 
@@ -420,8 +421,16 @@ func (pfo *PortForwardOpts) PortForward() error {
 //	pfo.HostsParams.svcServiceName = svcServiceName
 //}
 
-// AddHost
+// addHost adds a hostname to /etc/hosts, checking for duplicates first.
+// If the hostname is already registered by another service, it logs a warning and skips.
 func (pfo *PortForwardOpts) addHost(host string) {
+	// Check if hostname is already registered (duplicate detection)
+	if fwdIp.IsHostnameRegistered(host) {
+		log.Warnf("Hostname %s already registered, skipping duplicate for service %s in context %s",
+			host, pfo.Service, pfo.Context)
+		return
+	}
+
 	pfo.Hosts = append(pfo.Hosts, host)
 	fwdIp.RegisterHostname(host)
 	pfo.HostFile.Hosts.RemoveHost(host)
@@ -487,8 +496,8 @@ func (pfo *PortForwardOpts) AddHosts() error {
 		))
 	}
 
-	// namespaced without cluster
-	if pfo.ClusterN == 0 {
+	// namespaced without cluster, or when ClusterLocalAll is enabled
+	if pfo.ClusterN == 0 || pfo.ClusterLocalAll {
 		pfo.addHost(fmt.Sprintf(
 			"%s.%s",
 			pfo.Service,

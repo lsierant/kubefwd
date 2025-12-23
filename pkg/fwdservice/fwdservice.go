@@ -56,6 +56,9 @@ type ServiceFWD struct {
 	// Domain is specified by the user and used in place of .local
 	Domain string
 
+	// ClusterLocalAll when true adds .svc.cluster.local suffix for all contexts
+	ClusterLocalAll bool
+
 	PodLabelSelector     string      // The label selector to query for matching pods.
 	NamespaceServiceLock *sync.Mutex //
 	Svc                  *v1.Service // Reference to the k8s service.
@@ -327,22 +330,23 @@ func (svcFwd *ServiceFWD) LoopPodsToForward(pods []v1.Pod, includePodNameInHost 
 			)
 
 			pfo := &fwdport.PortForwardOpts{
-				Out:        publisher,
-				Config:     svcFwd.ClientConfig,
-				ClientSet:  svcFwd.ClientSet,
-				RESTClient: svcFwd.RESTClient,
-				Context:    svcFwd.Context,
-				Namespace:  pod.Namespace,
-				Service:    svcName,
-				ServiceFwd: svcFwd,
-				PodName:    pod.Name,
-				PodPort:    podPort,
-				LocalIp:    localIp,
-				LocalPort:  localPort,
-				HostFile:   svcFwd.Hostfile,
-				ClusterN:   svcFwd.ClusterN,
-				NamespaceN: svcFwd.NamespaceN,
-				Domain:     svcFwd.Domain,
+				Out:             publisher,
+				Config:          svcFwd.ClientConfig,
+				ClientSet:       svcFwd.ClientSet,
+				RESTClient:      svcFwd.RESTClient,
+				Context:         svcFwd.Context,
+				Namespace:       pod.Namespace,
+				Service:         svcName,
+				ServiceFwd:      svcFwd,
+				PodName:         pod.Name,
+				PodPort:         podPort,
+				LocalIp:         localIp,
+				LocalPort:       localPort,
+				HostFile:        svcFwd.Hostfile,
+				ClusterN:        svcFwd.ClusterN,
+				NamespaceN:      svcFwd.NamespaceN,
+				Domain:          svcFwd.Domain,
+				ClusterLocalAll: svcFwd.ClusterLocalAll,
 
 				ManualStopChan: make(chan struct{}),
 				DoneChan:       make(chan struct{}),

@@ -77,6 +77,19 @@ func RegisterHostname(hostname string) {
 	ipRegistry.hostnames = append(ipRegistry.hostnames, hostname)
 }
 
+// IsHostnameRegistered checks if a hostname has already been registered.
+// This is used to detect duplicate hostnames when --cluster-local-all is enabled.
+func IsHostnameRegistered(hostname string) bool {
+	ipRegistry.mutex.Lock()
+	defer ipRegistry.mutex.Unlock()
+	for _, h := range ipRegistry.hostnames {
+		if h == hostname {
+			return true
+		}
+	}
+	return false
+}
+
 func GetRegisteredHostnames() []string {
 	ipRegistry.mutex.Lock()
 	defer ipRegistry.mutex.Unlock()

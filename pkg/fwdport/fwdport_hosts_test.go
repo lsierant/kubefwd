@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/txn2/kubefwd/pkg/fwdIp"
 	"github.com/txn2/txeh"
 )
 
@@ -74,6 +75,7 @@ func createMockPortForwardOpts(hostFile *HostFileWithLock, service, namespace, c
 
 // TestAddHosts_SingleCall tests adding hosts in a single call
 func TestAddHosts_SingleCall(t *testing.T) {
+	fwdIp.ResetRegistry() // Reset global state for test isolation
 	hostFile, _, cleanup := createTempHostsFile(t)
 	defer cleanup()
 
@@ -100,6 +102,7 @@ func TestAddHosts_SingleCall(t *testing.T) {
 
 // TestRemoveHosts_SingleCall tests removing hosts in a single call
 func TestRemoveHosts_SingleCall(t *testing.T) {
+	fwdIp.ResetRegistry() // Reset global state for test isolation
 	hostFile, _, cleanup := createTempHostsFile(t)
 	defer cleanup()
 
@@ -129,6 +132,7 @@ func TestRemoveHosts_SingleCall(t *testing.T) {
 
 // TestAddHosts_ConcurrentSameService tests concurrent AddHosts calls for the same service
 func TestAddHosts_ConcurrentSameService(t *testing.T) {
+	fwdIp.ResetRegistry() // Reset global state for test isolation
 	hostFile, _, cleanup := createTempHostsFile(t)
 	defer cleanup()
 
@@ -154,6 +158,7 @@ func TestAddHosts_ConcurrentSameService(t *testing.T) {
 
 // TestAddHosts_ConcurrentDifferentServices tests concurrent AddHosts calls for different services
 func TestAddHosts_ConcurrentDifferentServices(t *testing.T) {
+	fwdIp.ResetRegistry() // Reset global state for test isolation
 	hostFile, _, cleanup := createTempHostsFile(t)
 	defer cleanup()
 
@@ -184,6 +189,7 @@ func TestAddHosts_ConcurrentDifferentServices(t *testing.T) {
 
 // TestRemoveHosts_Concurrent tests concurrent removeHosts calls
 func TestRemoveHosts_Concurrent(t *testing.T) {
+	fwdIp.ResetRegistry() // Reset global state for test isolation
 	hostFile, _, cleanup := createTempHostsFile(t)
 	defer cleanup()
 
@@ -216,6 +222,7 @@ func TestRemoveHosts_Concurrent(t *testing.T) {
 
 // TestAddAndRemoveHosts_Concurrent tests concurrent adds and removes
 func TestAddAndRemoveHosts_Concurrent(t *testing.T) {
+	fwdIp.ResetRegistry() // Reset global state for test isolation
 	hostFile, _, cleanup := createTempHostsFile(t)
 	defer cleanup()
 
@@ -259,6 +266,7 @@ func TestAddAndRemoveHosts_Concurrent(t *testing.T) {
 
 // TestHostsFileReload_WhileWriting tests Reload() being called during concurrent writes
 func TestHostsFileReload_WhileWriting(t *testing.T) {
+	fwdIp.ResetRegistry() // Reset global state for test isolation
 	hostFile, _, cleanup := createTempHostsFile(t)
 	defer cleanup()
 
@@ -368,6 +376,7 @@ func TestHostSanitization(t *testing.T) {
 
 // TestAddHost_WithSanitization tests that addHost properly handles sanitization
 func TestAddHost_WithSanitization(t *testing.T) {
+	fwdIp.ResetRegistry() // Reset global state for test isolation
 	hostFile, _, cleanup := createTempHostsFile(t)
 	defer cleanup()
 
@@ -439,6 +448,7 @@ func TestAddHosts_DifferentClusterNamespaceConfigurations(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			fwdIp.ResetRegistry() // Reset global state for test isolation
 			hostFile, _, cleanup := createTempHostsFile(t)
 			defer cleanup()
 
@@ -462,6 +472,7 @@ func TestAddHosts_DifferentClusterNamespaceConfigurations(t *testing.T) {
 
 // TestConcurrentAddRemoveSameHost tests the edge case of adding and removing the same host concurrently
 func TestConcurrentAddRemoveSameHost(t *testing.T) {
+	fwdIp.ResetRegistry() // Reset global state for test isolation
 	hostFile, _, cleanup := createTempHostsFile(t)
 	defer cleanup()
 
@@ -566,4 +577,182 @@ func TestHostsFileReloadError(t *testing.T) {
 // TestRaceConditions is a placeholder test that reminds us to run with -race
 func TestRaceConditions(t *testing.T) {
 	t.Log("Run with: go test -race ./pkg/fwdport/... to detect race conditions")
+}
+
+// TestAddHosts_ClusterLocalAll tests that ClusterLocalAll adds .svc.cluster.local for all contexts
+func TestAddHosts_ClusterLocalAll(t *testing.T) {
+	fwdIp.ResetRegistry() // Reset global state for test isolation
+
+	hostFile, _, cleanup := createTempHostsFile(t)
+	defer cleanup()
+
+	// First context (ClusterN=0) - should always get .svc.cluster.local
+	localIP1 := net.ParseIP("127.1.27.1")
+	pfo1 := createMockPortForwardOpts(hostFile, "my-svc", "default", "ctx1", localIP1)
+	pfo1.ClusterN = 0
+	pfo1.ClusterLocalAll = false
+
+	if err := pfo1.AddHosts(); err != nil {
+		t.Fatalf("AddHosts failed for first context: %v", err)
+	}
+
+	// Verify .svc.cluster.local is present for first context
+	hasClusterLocal := false
+	for _, h := range pfo1.Hosts {
+		if h == "my-svc.default.svc.cluster.local" {
+			hasClusterLocal = true
+			break
+		}
+	}
+	if !hasClusterLocal {
+		t.Error("Expected .svc.cluster.local for first context (ClusterN=0)")
+	}
+
+	// Second context (ClusterN=1) without ClusterLocalAll - should NOT get .svc.cluster.local
+	fwdIp.ResetRegistry() // Reset to avoid duplicates
+	localIP2 := net.ParseIP("127.2.27.1")
+	pfo2 := createMockPortForwardOpts(hostFile, "my-svc", "default", "ctx2", localIP2)
+	pfo2.ClusterN = 1
+	pfo2.ClusterLocalAll = false
+
+	if err := pfo2.AddHosts(); err != nil {
+		t.Fatalf("AddHosts failed for second context: %v", err)
+	}
+
+	hasClusterLocal = false
+	for _, h := range pfo2.Hosts {
+		if h == "my-svc.default.svc.cluster.local" {
+			hasClusterLocal = true
+			break
+		}
+	}
+	if hasClusterLocal {
+		t.Error("Expected NO .svc.cluster.local for second context (ClusterN=1) without ClusterLocalAll")
+	}
+
+	// Third context (ClusterN=2) WITH ClusterLocalAll - should get .svc.cluster.local
+	fwdIp.ResetRegistry() // Reset to avoid duplicates
+	localIP3 := net.ParseIP("127.3.27.1")
+	pfo3 := createMockPortForwardOpts(hostFile, "my-svc", "default", "ctx3", localIP3)
+	pfo3.ClusterN = 2
+	pfo3.ClusterLocalAll = true
+
+	if err := pfo3.AddHosts(); err != nil {
+		t.Fatalf("AddHosts failed for third context: %v", err)
+	}
+
+	hasClusterLocal = false
+	for _, h := range pfo3.Hosts {
+		if h == "my-svc.default.svc.cluster.local" {
+			hasClusterLocal = true
+			break
+		}
+	}
+	if !hasClusterLocal {
+		t.Error("Expected .svc.cluster.local for third context (ClusterN=2) WITH ClusterLocalAll")
+	}
+
+	t.Log("ClusterLocalAll flag works correctly")
+}
+
+// TestAddHosts_DuplicateDetection tests that duplicate hostnames are detected and skipped
+func TestAddHosts_DuplicateDetection(t *testing.T) {
+	fwdIp.ResetRegistry() // Reset global state for test isolation
+
+	hostFile, _, cleanup := createTempHostsFile(t)
+	defer cleanup()
+
+	// First service registers the hostname
+	localIP1 := net.ParseIP("127.1.27.1")
+	pfo1 := createMockPortForwardOpts(hostFile, "shared-svc", "default", "ctx1", localIP1)
+	pfo1.ClusterN = 0
+
+	if err := pfo1.AddHosts(); err != nil {
+		t.Fatalf("AddHosts failed for first service: %v", err)
+	}
+	firstHostCount := len(pfo1.Hosts)
+
+	// Second service with same name should detect duplicates
+	localIP2 := net.ParseIP("127.1.27.2")
+	pfo2 := createMockPortForwardOpts(hostFile, "shared-svc", "default", "ctx1", localIP2)
+	pfo2.ClusterN = 0
+
+	if err := pfo2.AddHosts(); err != nil {
+		t.Fatalf("AddHosts failed for second service: %v", err)
+	}
+
+	// Second service should have no hosts added (all duplicates)
+	if len(pfo2.Hosts) != 0 {
+		t.Errorf("Expected 0 hosts for second service (all duplicates), got %d: %v", len(pfo2.Hosts), pfo2.Hosts)
+	}
+
+	t.Logf("Duplicate detection works: first service got %d hosts, second service got %d hosts (duplicates skipped)", firstHostCount, len(pfo2.Hosts))
+}
+
+// TestAddHosts_ClusterLocalAll_MultiContext tests multiple contexts with ClusterLocalAll
+func TestAddHosts_ClusterLocalAll_MultiContext(t *testing.T) {
+	fwdIp.ResetRegistry() // Reset global state for test isolation
+
+	hostFile, _, cleanup := createTempHostsFile(t)
+	defer cleanup()
+
+	// Simulate two contexts both with ClusterLocalAll enabled
+	// First context should succeed, second should get duplicate warning for .svc.cluster.local
+
+	localIP1 := net.ParseIP("127.1.27.1")
+	pfo1 := createMockPortForwardOpts(hostFile, "my-svc", "default", "ctx1", localIP1)
+	pfo1.ClusterN = 0
+	pfo1.ClusterLocalAll = true
+
+	if err := pfo1.AddHosts(); err != nil {
+		t.Fatalf("AddHosts failed for first context: %v", err)
+	}
+
+	// Second context with same service name and ClusterLocalAll
+	localIP2 := net.ParseIP("127.2.27.1")
+	pfo2 := createMockPortForwardOpts(hostFile, "my-svc", "default", "ctx2", localIP2)
+	pfo2.ClusterN = 1
+	pfo2.ClusterLocalAll = true
+
+	if err := pfo2.AddHosts(); err != nil {
+		t.Fatalf("AddHosts failed for second context: %v", err)
+	}
+
+	// Verify first context has .svc.cluster.local
+	hasClusterLocal1 := false
+	for _, h := range pfo1.Hosts {
+		if h == "my-svc.default.svc.cluster.local" {
+			hasClusterLocal1 = true
+			break
+		}
+	}
+	if !hasClusterLocal1 {
+		t.Error("First context should have .svc.cluster.local")
+	}
+
+	// Second context should NOT have .svc.cluster.local (duplicate was skipped)
+	hasClusterLocal2 := false
+	for _, h := range pfo2.Hosts {
+		if h == "my-svc.default.svc.cluster.local" {
+			hasClusterLocal2 = true
+			break
+		}
+	}
+	if hasClusterLocal2 {
+		t.Error("Second context should NOT have .svc.cluster.local (should be skipped as duplicate)")
+	}
+
+	// But second context should still have its unique context-specific hosts
+	hasCtx2Host := false
+	for _, h := range pfo2.Hosts {
+		if h == "my-svc.default.ctx2" || h == "my-svc.default.svc.cluster.ctx2" {
+			hasCtx2Host = true
+			break
+		}
+	}
+	if !hasCtx2Host {
+		t.Error("Second context should have context-specific hosts like my-svc.default.ctx2")
+	}
+
+	t.Logf("Multi-context with ClusterLocalAll: ctx1 hosts=%d, ctx2 hosts=%d", len(pfo1.Hosts), len(pfo2.Hosts))
 }

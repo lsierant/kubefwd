@@ -871,3 +871,73 @@ func TestGetIp_NonExistentConfigFile(t *testing.T) {
 		t.Errorf("Expected fallback to loopback IP in 127.x.x.x range, got %s", ip.String())
 	}
 }
+
+// TestIsHostnameRegistered tests the duplicate hostname detection function
+func TestIsHostnameRegistered(t *testing.T) {
+	resetRegistry()
+
+	// Initially, no hostname should be registered
+	if IsHostnameRegistered("test-hostname") {
+		t.Error("Expected hostname to not be registered initially")
+	}
+
+	// Register a hostname
+	RegisterHostname("test-hostname")
+
+	// Now it should be registered
+	if !IsHostnameRegistered("test-hostname") {
+		t.Error("Expected hostname to be registered after RegisterHostname")
+	}
+
+	// Different hostname should not be registered
+	if IsHostnameRegistered("different-hostname") {
+		t.Error("Expected different hostname to not be registered")
+	}
+
+	// Register multiple hostnames
+	RegisterHostname("hostname-2")
+	RegisterHostname("hostname-3")
+
+	if !IsHostnameRegistered("hostname-2") {
+		t.Error("Expected hostname-2 to be registered")
+	}
+	if !IsHostnameRegistered("hostname-3") {
+		t.Error("Expected hostname-3 to be registered")
+	}
+
+	// Verify all registered hostnames can be retrieved
+	hostnames := GetRegisteredHostnames()
+	if len(hostnames) != 3 {
+		t.Errorf("Expected 3 registered hostnames, got %d", len(hostnames))
+	}
+}
+
+// TestIsHostnameRegistered_Concurrent tests concurrent access to hostname registration
+func TestIsHostnameRegistered_Concurrent(t *testing.T) {
+	resetRegistry()
+
+	var wg sync.WaitGroup
+	numGoroutines := 100
+
+	// Concurrently register and check hostnames
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			hostname := fmt.Sprintf("concurrent-host-%d", n)
+			RegisterHostname(hostname)
+			// Immediately check if it's registered
+			if !IsHostnameRegistered(hostname) {
+				t.Errorf("Hostname %s should be registered", hostname)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	// All hostnames should be registered
+	hostnames := GetRegisteredHostnames()
+	if len(hostnames) != numGoroutines {
+		t.Errorf("Expected %d registered hostnames, got %d", numGoroutines, len(hostnames))
+	}
+}

@@ -66,6 +66,7 @@ var refreshHostsBackup bool
 var purgeStaleIps bool
 var resyncInterval time.Duration
 var retryInterval time.Duration
+var clusterLocalAll bool
 
 func init() {
 	// override error output from k8s.io/apimachinery/pkg/util/runtime
@@ -91,6 +92,7 @@ func init() {
 	Cmd.Flags().BoolVarP(&purgeStaleIps, "purge-stale-ips", "p", false, "Remove stale kubefwd host entries (IPs in 127.1.27.1 - 127.255.255.255 range) before starting.")
 	Cmd.Flags().DurationVar(&resyncInterval, "resync-interval", 5*time.Minute, "Interval for forced service resync (e.g., 1m, 5m, 30s)")
 	Cmd.Flags().DurationVar(&retryInterval, "retry-interval", 10*time.Second, "Retry interval when no pods found for a service (e.g., 5s, 10s, 30s)")
+	Cmd.Flags().BoolVar(&clusterLocalAll, "cluster-local-all", false, "Add .svc.cluster.local suffix for all contexts (duplicates will be skipped with a warning)")
 
 }
 
@@ -368,6 +370,7 @@ Try:
 				ClusterN:          i,
 				NamespaceN:        ii,
 				Domain:            domain,
+				ClusterLocalAll:   clusterLocalAll,
 				ManualStopChannel: stopListenCh,
 				PortMapping:       mappings,
 			}
@@ -419,6 +422,9 @@ type NamespaceOpts struct {
 	Domain string
 	// meaning any source port maps to target port.
 	PortMapping []string
+
+	// ClusterLocalAll when true adds .svc.cluster.local suffix for all contexts
+	ClusterLocalAll bool
 
 	ManualStopChannel chan struct{}
 }
@@ -487,6 +493,7 @@ func (opts *NamespaceOpts) AddServiceHandler(obj interface{}) {
 		NamespaceN:               opts.NamespaceN,
 		ClusterN:                 opts.ClusterN,
 		Domain:                   opts.Domain,
+		ClusterLocalAll:          opts.ClusterLocalAll,
 		PodLabelSelector:         selector,
 		NamespaceServiceLock:     opts.NamespaceIPLock,
 		Svc:                      svc,
