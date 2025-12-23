@@ -21,6 +21,7 @@ import (
 	"io"
 	"os"
 	"regexp"
+	"runtime/debug"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
@@ -31,6 +32,18 @@ import (
 
 var globalUsage = ``
 var Version = "0.0.0"
+
+// fullVersion returns the version string with git commit if available
+func fullVersion() string {
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, setting := range info.Settings {
+			if setting.Key == "vcs.revision" {
+				return fmt.Sprintf("%s (%s)", Version, setting.Value)
+			}
+		}
+	}
+	return Version
+}
 
 // KlogWriter captures klog output and reformats it through logrus
 type KlogWriter struct{}
@@ -79,7 +92,7 @@ func init() {
 	// quiet version
 	args := os.Args[1:]
 	if len(args) == 2 && args[0] == "version" && args[1] == "quiet" {
-		fmt.Println(Version)
+		fmt.Println(fullVersion())
 		os.Exit(0)
 	}
 
@@ -115,7 +128,7 @@ func newRootCmd() *cobra.Command {
 			" kubefwd version quiet\n",
 		Long: ``,
 		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Printf("Kubefwd version: %s\nhttps://github.com/txn2/kubefwd\n", Version)
+			fmt.Printf("Kubefwd version: %s\nhttps://github.com/txn2/kubefwd\n", fullVersion())
 		},
 	}
 
@@ -147,7 +160,7 @@ func main() {
 	log.Print(`|   <| |_| | |_) |  __/  _|\ V  V / (_| |`)
 	log.Print(`|_|\_\\__,_|_.__/ \___|_|   \_/\_/ \__,_|`)
 	log.Print("")
-	log.Printf("Version %s", Version)
+	log.Printf("Version %s", fullVersion())
 	log.Print("https://github.com/txn2/kubefwd")
 	log.Print("")
 
